@@ -115,31 +115,8 @@
 		icoWireMesh = new THREE.Mesh(geometry, wireMaterial);
 		earthGroup.add(icoWireMesh);
 
-		// --- Normal vector lines ---
-		const { centroids, normals } = getIcosahedronCentroidsAndNormals(geometry);
-		const normalLinePoints: number[] = [];
-		const normalLength = 0.1; // Length of normal vectors
-		
-		centroids.forEach((centroid, i) => {
-			const normal = normals[i];
-			// Start point (centroid)
-			normalLinePoints.push(centroid[0], centroid[1], centroid[2]);
-			// End point (centroid + scaled normal)
-			normalLinePoints.push(
-				centroid[0] + normal[0] * normalLength,
-				centroid[1] + normal[1] * normalLength,
-				centroid[2] + normal[2] * normalLength
-			);
-		});
-
-		const normalGeometry = new THREE.BufferGeometry();
-		normalGeometry.setAttribute(
-			'position',
-			new THREE.Float32BufferAttribute(normalLinePoints, 3)
-		);
-		const normalMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
-		normalLines = new THREE.LineSegments(normalGeometry, normalMaterial);
-		earthGroup.add(normalLines);
+		// Reset the simulation coverage when detail changes
+		simCoverage = null;
 	}
 
 	// Reactive statement to update icosahedron when detail changes
