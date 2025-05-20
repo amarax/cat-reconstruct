@@ -66,30 +66,40 @@
 	let earthGroup: THREE.Group; // Earth + icosahedron + axes
 	let satMeshes: THREE.Mesh[] = []; // three.js spheres for sats
 	let satRecords: satellite.SatRecord[] = [];
-	let icoMesh: THREE.Mesh | null = null; // Reference to the icosahedron mesh for coloring
+	let icoHeatMesh: THREE.Object3D | null = null; // Heatmap mesh
+	let icoWireMesh: THREE.Object3D | null = null; // Wireframe mesh
 
 	// Function to update icosahedron when detail changes
 	function updateIcosahedron() {
 		if (!earthGroup) return;
-		// Remove old icosahedron only
-		if (icoMesh && earthGroup.children.includes(icoMesh)) {
-			earthGroup.remove(icoMesh);
+		// Remove old meshes if present
+		if (icoHeatMesh && earthGroup.children.includes(icoHeatMesh)) {
+			earthGroup.remove(icoHeatMesh);
+		}
+		if (icoWireMesh && earthGroup.children.includes(icoWireMesh)) {
+			earthGroup.remove(icoWireMesh);
 		}
 
-		// Create new icosahedron with current detail
+		// Create geometry for both meshes
 		const geometry = new THREE.IcosahedronGeometry(1.02, detail);
 		geometry.rotateX(Math.PI / 2);
-		// Add color attribute for per-face coloring
+
+		// --- Heatmap mesh ---
 		const color = new THREE.Color();
 		const colors = [];
 		for (let i = 0; i < geometry.attributes.position.count; i++) {
 			color.setRGB(1, 1, 1); // default white
-			colors.push(color.r, color.g, color.b);
+			colors.push(color.r, color.g, color.b, 0.0); // default fully transparent
 		}
-		geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-		const material = new THREE.MeshBasicMaterial({ vertexColors: true, wireframe: true });
-		icoMesh = new THREE.Mesh(geometry, material);
-		earthGroup.add(icoMesh);
+		geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
+		const heatMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 1.0, depthWrite: false });
+		icoHeatMesh = new THREE.Mesh(geometry, heatMaterial);
+		earthGroup.add(icoHeatMesh);
+
+		// --- Wireframe mesh ---
+		const wireMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, opacity: 0.7, transparent: true });
+		icoWireMesh = new THREE.Mesh(geometry, wireMaterial);
+		earthGroup.add(icoWireMesh);
 	}
 
 	// Reactive statement to update icosahedron when detail changes
@@ -201,6 +211,8 @@
 		});
 
 		animate();
+		// Start simulation automatically when visualisation is ready
+		//startSim();
 	});
 
 	/*********************** Animation loop *************************/
@@ -252,6 +264,61 @@
 	let simCoverage: Float32Array | null = null;
 	let simTime = 0;
 
+	function getIcosahedronCentroidsAndNormals(geometry: THREE.IcosahedronGeometry) {
+		const posAttr = geometry.getAttribute('position');
+		const indexAttr = geometry.getIndex();
+		const centroids: number[][] = [];
+		const normals: number[][] = [];
+		if (indexAttr) {
+			for (let i = 0; i < indexAttr.count; i += 3) {
+				const a = indexAttr.getX(i);
+				const b = indexAttr.getX(i + 1);
+				const c = indexAttr.getX(i + 2);
+				const vA = [posAttr.getX(a), posAttr.getY(a), posAttr.getZ(a)];
+				const vB = [posAttr.getX(b), posAttr.getY(b), posAttr.getZ(b)];
+				const vC = [posAttr.getX(c), posAttr.getY(c), posAttr.getZ(c)];
+				const centroid = [
+					(vA[0] + vB[0] + vC[0]) / 3,
+					(vA[1] + vB[1] + vC[1]) / 3,
+					(vA[2] + vB[2] + vC[2]) / 3
+				];
+				const ab = [vB[0] - vA[0], vB[1] - vA[1], vB[2] - vA[2]];
+				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[2]];
+				const normal = [
+					ab[1] * ac[2] - ab[2] * ac[1],
+					ab[2] * ac[0] - ab[0] * ac[2],
+					ab[0] * ac[1] - ab[1] * ac[0]
+				];
+				const len = Math.hypot(...normal);
+				normals.push([normal[0] / len, normal[1] / len, normal[2] / len]);
+				centroids.push(centroid);
+			}
+		} else {
+			// Non-indexed geometry: every 3 consecutive vertices is a face
+			for (let i = 0; i < posAttr.count; i += 3) {
+				const vA = [posAttr.getX(i), posAttr.getY(i), posAttr.getZ(i)];
+				const vB = [posAttr.getX(i + 1), posAttr.getY(i + 1), posAttr.getZ(i + 1)];
+				const vC = [posAttr.getX(i + 2), posAttr.getY(i + 2), posAttr.getZ(i + 2)];
+				const centroid = [
+					(vA[0] + vB[0] + vC[0]) / 3,
+					(vA[1] + vB[1] + vC[1]) / 3,
+					(vA[2] + vB[2] + vC[2]) / 3
+				];
+				const ab = [vB[0] - vA[0], vB[1] - vA[1], vB[2] - vA[2]];
+				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[1]];
+				const normal = [
+					ab[1] * ac[2] - ab[2] * ac[1],
+					ab[2] * ac[0] - ab[0] * ac[2],
+					ab[0] * ac[1] - ab[1] * ac[0]
+				];
+				const len = Math.hypot(...normal);
+				normals.push([normal[0] / len, normal[1] / len, normal[2] / len]);
+				centroids.push(centroid);
+			}
+		}
+		return { centroids, normals };
+	}
+
 	function startSim() {
 		if (simWorker) return;
 		simWorker = new SimulationWorker();
@@ -267,13 +334,21 @@
 					simCoverage = new Float32Array(coverage);
 				}
 			}
-			if (time) simTime = time;
+			if (typeof time === 'number') {
+				simTime = time;
+				simSeconds = time; // Sync visualisation time to simulation
+			}
 		};
+		// Prepare centroids and normals from the current geometry
+		const geometry = (icoHeatMesh as THREE.Mesh).geometry as THREE.IcosahedronGeometry;
+		const { centroids, normals } = getIcosahedronCentroidsAndNormals(geometry);
 		simWorker.postMessage({
 			cmd: 'init',
 			payload: {
-				detail,
-				tles: sats.map(s => [s.tle1, s.tle2])
+				tles: sats.map(s => [s.tle1, s.tle2]),
+				centroids,
+				normals,
+				startEpoch: simStartEpoch // Pass the start time to the worker
 			}
 		});
 		simWorker.postMessage({ cmd: 'start' });
@@ -286,45 +361,26 @@
 		simWorker.terminate();
 		simWorker = null;
 		simRunning = false;
+		// Don't clear simCoverage to preserve the heatmap visualization
 	}
 
-	$: if (simWorker && detail) {
-		// Re-init worker if detail changes
-		simWorker.postMessage({
-			cmd: 'init',
-			payload: {
-				detail,
-				tles: sats.map(s => [s.tle1, s.tle2])
-			}
-		});
-	}
-
-	$: if (simWorker && sats) {
-		// Re-init worker if sats change
-		simWorker.postMessage({
-			cmd: 'init',
-			payload: {
-				detail,
-				tles: sats.map(s => [s.tle1, s.tle2])
-			}
-		});
-	}
-
-	$: if (simCoverage && simRunning && icoMesh) {
-		// Color faces by coverage (simple heatmap: blue=low, red=high)
-		const geometry = icoMesh.geometry;
+	$: if (simCoverage && icoHeatMesh) {
+		// Color faces by coverage (simple heatmap: blue=low, red=high, alpha=0 if not visited)
+		const geometry = (icoHeatMesh as THREE.Mesh).geometry;
 		const colors = geometry.attributes.color.array;
 		const max = Math.max(...simCoverage);
 		for (let f = 0; f < simCoverage.length; f++) {
-			const vIdx = f * 9; // 3 vertices per face, 3 values per vertex
+			const vIdx = f * 12; // 3 vertices per face, 4 values per vertex
 			const cov = simCoverage[f];
 			const t = max > 0 ? cov / max : 0;
 			// Heatmap: blue (low) to red (high)
 			const r = t, g = 0, b = 1 - t;
+			const a = cov > 0 ? 0.7 : 0.0;
 			for (let i = 0; i < 3; i++) {
-				colors[vIdx + i * 3 + 0] = r;
-				colors[vIdx + i * 3 + 1] = g;
-				colors[vIdx + i * 3 + 2] = b;
+				colors[vIdx + i * 4 + 0] = r;
+				colors[vIdx + i * 4 + 1] = g;
+				colors[vIdx + i * 4 + 2] = b;
+				colors[vIdx + i * 4 + 3] = a;
 			}
 		}
 		geometry.attributes.color.needsUpdate = true;
@@ -364,7 +420,7 @@
 			{simRunning ? 'Stop Simulation' : 'Start Simulation'}
 		</button>
 		{#if simRunning}
-			<div class="text-xs">Sim time: {new Date(simTime * 1000).toUTCString()}</div>
+			<div class="text-xs">Sim time: {new Date((simStartEpoch + simSeconds) * 1000).toUTCString()}</div>
 			{#if simCoverage}
 				<div class="text-xs">Coverage bins: {simCoverage.length}</div>
 			{/if}
