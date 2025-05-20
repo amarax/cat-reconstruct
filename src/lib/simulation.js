@@ -19,23 +19,8 @@ let centroids = [];
 let normals = [];
 let time = 0;
 const step = 1; // seconds per timestep
-const maxTime = 86400; // 1 day
-
-/**
- * @param {Array<number[]>} positions
- * @param {Array<number[]>} faces
- * @returns {Array<number[]>}
- */
-function computeCentroids(positions, faces) {
-    return faces.map(([a,b,c]) => {
-        const v1 = positions[a], v2 = positions[b], v3 = positions[c];
-        return [
-            (v1[0]+v2[0]+v3[0])/3,
-            (v1[1]+v2[1]+v3[1])/3,
-            (v1[2]+v2[2]+v3[2])/3
-        ];
-    });
-}
+let maxTime = 30 * 86400;
+let startTime = 0;
 
 /**
  * @param {number[]} a
@@ -49,20 +34,6 @@ function dot(a, b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
  * @returns {number[]}
  */
 function norm(a) { const l=Math.hypot(...a); return a.map(x=>x/l); }
-
-/**
- * @param {number[]} pos
- * @param {Array<number[]>} centroids
- * @returns {number}
- */
-function findFaceIdx(pos, centroids) {
-    let maxDot = -Infinity, idx = -1;
-    for (let i=0; i<centroids.length; i++) {
-        const d = dot(norm(pos), norm(centroids[i]));
-        if (d > maxDot) { maxDot = d; idx = i; }
-    }
-    return idx;
-}
 
 /**
  * @param {Array<any>} satrecs
@@ -85,7 +56,7 @@ function resetCoverage(n) {
 }
 
 /**
- * @param {{tles: Array<[string, string]>, centroids: Array<number[]>, normals: Array<number[]>, startEpoch?: number}} payload
+ * @param {{tles: Array<[string, string]>, centroids: Array<number[]>, normals: Array<number[]>, startEpoch?: number, simStartTime?: number, simEndTime?: number}} payload
  */
 function handleInit(payload) {
     tles = payload.tles || [];
@@ -94,6 +65,8 @@ function handleInit(payload) {
     satrecs = tles.map(([tle1, tle2]) => satellite.twoline2satrec(tle1, tle2));
     resetCoverage(centroids.length);
     time = 0;
+    startTime = payload.simStartTime || 0;
+    maxTime = payload.simEndTime || (30 * 86400);
     if (typeof payload.startEpoch === 'number') {
         startEpoch = payload.startEpoch;
     } else {
@@ -128,30 +101,45 @@ function handleStop() {
 }
 
 const coneAngle = 10; // degrees
+const loopMaxTime = 1000; // ms
 
 function simLoop() {
     if (!running) return;
-    // Use startEpoch for simulation time
-    const date = new Date((startEpoch + time) * 1000);
-    const satPositions = propagateAllSats(satrecs, date);
-    // For each satellite, check which triangles are covered
-    const cosThreshold = Math.cos(coneAngle * Math.PI / 180); // 10 degree cone
-    for (const pos of satPositions) {
-        if (!pos) continue;
-        const satNorm = norm(pos);
-        for (let i = 0; i < centroids.length; i++) {
-            // Angle between sat->centroid and normal
-            const c = centroids[i];
-            const n = normals[i];
-            // Vector from origin to centroid (should be unit)
-            // Vector from origin to satellite (satNorm)
-            // If dot(satNorm, n) > cosThreshold, satellite is within cone of normal
-            if (dot(satNorm, n) > cosThreshold) {
-                coverage[i] += 1;
+    
+    if (time < startTime) {
+        time = startTime;
+    }
+
+    const loopStart = performance.now();
+
+    /** @type {Array<number[] | null>} */
+    let satPositions = [];
+    while (performance.now() - loopStart < loopMaxTime) {
+
+        // Use startEpoch for simulation time
+        const date = new Date((startEpoch + time) * 1000);
+        satPositions = propagateAllSats(satrecs, date);
+        // For each satellite, check which triangles are covered
+        const cosThreshold = Math.cos(coneAngle * Math.PI / 180); // 10 degree cone
+        for (const pos of satPositions) {
+            if (!pos) continue;
+            const satNorm = norm(pos);
+            for (let i = 0; i < centroids.length; i++) {
+                // Angle between sat->centroid and normal
+                const c = centroids[i];
+                const n = normals[i];
+                // Vector from origin to centroid (should be unit)
+                // Vector from origin to satellite (satNorm)
+                // If dot(satNorm, n) > cosThreshold, satellite is within cone of normal
+                if (dot(satNorm, n) > cosThreshold) {
+                    coverage[i] += 1;
+                }
             }
         }
+        time += step;
+
     }
-    time += step;
+    
     // Send positions along with coverage data
     self.postMessage({ 
         coverage: Array.from(coverage), 

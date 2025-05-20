@@ -11,6 +11,8 @@
 	let detail = 3; // Icosahedron tessellation (2‑20)
 	let simSeconds = 0; // Playback 0‑86400 seconds
 	const simStartEpoch = Date.now() / 1000; // UNIX seconds at load time
+	let simStartTime = 0; // Start time offset in seconds
+	let simEndTime = 86400*30; // End time offset in seconds
 	let selectedIdx: number | null = null; // Currently tracked satellite
 
 	/********************* Satellite master list ***********/
@@ -386,7 +388,9 @@
 				tles: sats.map((s) => [s.tle1, s.tle2]),
 				centroids,
 				normals,
-				startEpoch: simStartEpoch // Pass the start time to the worker
+				startEpoch: simStartEpoch, // Base epoch for date calculations
+				simStartTime: simStartTime, // Start time offset
+				simEndTime: simEndTime // End time offset
 			}
 		});
 		simWorker.postMessage({ cmd: 'start' });
@@ -438,6 +442,8 @@
 			}
 		}
 		geometry.attributes.color.needsUpdate = true;
+
+        console.log('Coverage updated:', simCoverage);
 	}
 </script>
 
@@ -471,9 +477,11 @@
 	</div>
 
 	<!-- Tessellation Control -->
-	<div class="overlay top-4 left-4">
-		<label>Tessellation: {detail}</label>
-		<input type="range" min="2" max="20" bind:value={detail} step="1" />
+	<div class="overlay top-4 left-4 flex flex-col gap-2">
+		<div>
+			<label>Tessellation: {detail}</label>
+			<input type="range" min="2" max="20" bind:value={detail} step="1" />
+		</div>
 	</div>
 
 	<!-- Satellite list -->
@@ -501,8 +509,18 @@
 
 	<!-- Playback Control -->
 	<div class="overlay bottom-4 left-1/2 w-3/4 -translate-x-1/2 text-center">
-		<input type="range" min="0" max="86400" step="60" bind:value={simSeconds} class="w-full" />
-		<div class="mt-1 font-mono">{new Date((simStartEpoch + simSeconds) * 1000).toUTCString()}</div>
+		<input 
+			type="range" 
+			min={simStartTime} 
+			max={simEndTime} 
+			step="60" 
+			bind:value={simSeconds} 
+			class="w-full" 
+		/>
+		<div class="mt-1">
+			<div class="font-mono">{new Date((simStartEpoch + simSeconds) * 1000).toUTCString()}</div>
+			<div class="text-xs text-gray-600">T+{Math.floor(simSeconds/3600)}h {Math.floor((simSeconds%3600)/60)}m</div>
+		</div>
 	</div>
 </div>
 
