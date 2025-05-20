@@ -72,7 +72,7 @@
 	let normalLines: THREE.LineSegments | null = null; // Normal vector lines
 
 	// Function to update icosahedron when detail changes
-	function updateIcosahedron() {
+	function updateIcosahedron(detail) {
 		if (!earthGroup) return;
 		// Remove old meshes if present
 		if (icoHeatMesh && earthGroup.children.includes(icoHeatMesh)) {
@@ -121,7 +121,7 @@
 	}
 
 	// Reactive statement to update icosahedron when detail changes
-	$: if (earthGroup) updateIcosahedron();
+	$: updateIcosahedron(detail);
 
 	/***************** Fetch GPS‑OPS TLEs then set up ***********/
 	async function fetchGPS() {
@@ -146,8 +146,16 @@
 
 	/*********************** Set up Three scene ****************/
 	onMount(async () => {
-		// Fetch GNSS constellation first
-		// await fetchGPS();
+		// Fetch GNSS constellation first. Try checking localstorage if available.
+        // If not, fetch from CelesTrak.
+        // if (localStorage.getItem('gpsTLEs')) {
+        //     const storedTLEs = JSON.parse(localStorage.getItem('gpsTLEs') || '[]');
+        //     sats = [...baseSats, ...storedTLEs];
+        // } else {
+        //     await fetchGPS();
+        //     localStorage.setItem('gpsTLEs', JSON.stringify(sats));
+        // }
+		
 
 		// Build satRecords array once satellite.js is ready
 		satRecords = sats.map(({ tle1, tle2 }) => satellite.twoline2satrec(tle1, tle2));
@@ -206,7 +214,7 @@
 		scene.add(earthGroup);
 
 		// Initial icosahedron creation
-		updateIcosahedron();
+		updateIcosahedron(detail);
 
 		// Lights
 		scene.add(new THREE.AmbientLight(0xffffff, 0.9));
