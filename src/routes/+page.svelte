@@ -39,7 +39,7 @@
 			tle2: '2 44365  97.4732  68.5907 0011873 314.5033  45.5469 15.01515154321723'
 		}
 	];
-	const sats: SatRec[] = [...baseSats]; // GNSS fetched onMount and pushed
+	let sats: SatRec[] = [...baseSats]; // GNSS fetched onMount and pushed
 
 	function hslToHex(h: number, s = 100, l = 50) {
 		l /= 100;
@@ -67,25 +67,45 @@
 	let satMeshes: THREE.Mesh[] = []; // three.js spheres for sats
 	let satRecords: satellite.SatRecord[] = [];
 
+	// Function to update icosahedron when detail changes
+	function updateIcosahedron() {
+		if (!earthGroup) return;
+		// Remove old icosahedron
+		const oldIco = earthGroup.children.find(child => child instanceof THREE.LineSegments && !(child === poleLines));
+		if (oldIco) earthGroup.remove(oldIco);
+		
+		// Create new icosahedron with current detail
+		const icoEdges = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1.02, detail));
+		const icoLine = new THREE.LineSegments(
+			icoEdges,
+			new THREE.LineBasicMaterial({ color: 0xffffff })
+		);
+		earthGroup.add(icoLine);
+	}
+
+	// Reactive statement to update icosahedron when detail changes
+	$: if (earthGroup) updateIcosahedron();
+
 	/***************** Fetch GPS‑OPS TLEs then set up ***********/
 	async function fetchGPS() {
 		const res = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=tle');
 		if (!res.ok) return;
 		const txt = await res.text();
 		const lines = txt.trim().split(/\n+/);
+		const newSats = [...sats]; // Create a new array with existing satellites
 		for (let i = 0; i < lines.length - 2; i += 3) {
 			const name = lines[i].replace(/^0 /, '').trim();
-			const hue = (sats.length * 137.508) % 360;
-			sats.push({
+			const hue = (newSats.length * 137.508) % 360;
+			newSats.push({
 				name,
 				color: hslToHex(hue),
 				tle1: lines[i + 1].trim(),
 				tle2: lines[i + 2].trim()
 			});
 		}
+		sats = newSats; // Reassign to trigger reactivity
 	}
-
-	$: icoEdges = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1.02, detail));
+    let poleLines: THREE.LineSegments;
 
 	/*********************** Set up Three scene ****************/
 	onMount(async () => {
@@ -137,25 +157,22 @@
         earthGeometry.rotateX(Math.PI / 2);
         const earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
 
-		// Icosahedron outline
-		const icoLine = new THREE.LineSegments(
-			icoEdges,
-			new THREE.LineBasicMaterial({ color: 0xffffff })
-		);
-
 		// Pole axes
 		const poleGeom = new THREE.BufferGeometry().setAttribute(
 			'position',
 			new THREE.Float32BufferAttribute([0, 0, -1.2, 0, 0, -1.7, 0, 0, 1.2, 0, 0, 1.7], 3)
 		);
-		const poleLines = new THREE.LineSegments(
+		poleLines = new THREE.LineSegments(
 			poleGeom,
 			new THREE.LineBasicMaterial({ color: 0x00ff00 })
 		);
 
 		earthGroup = new THREE.Group();
-		earthGroup.add(earthMesh, icoLine, poleLines);
+		earthGroup.add(earthMesh, poleLines);
 		scene.add(earthGroup);
+		
+		// Initial icosahedron creation
+		updateIcosahedron();
 
 		// Lights
 		scene.add(new THREE.AmbientLight(0xffffff, 0.9));
@@ -182,7 +199,7 @@
 		requestAnimationFrame(animate);
 
 		// Rotate Earth group inertially
-		earthGroup.rotation.y = (simSeconds / 86164) * 2 * Math.PI;
+		earthGroup.rotation.z = (simSeconds / 86164) * 2 * Math.PI;
 
 		// Update satellite positions
 		const date = new Date((simStartEpoch + simSeconds) * 1000);
