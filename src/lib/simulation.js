@@ -1,6 +1,6 @@
 // Web Worker for satellite coverage simulation (ESM, for SvelteKit)
 // Receives: { cmd: 'init', payload: { detail, tles } }, { cmd: 'start' }, { cmd: 'stop' }
-// Posts: { coverage, time }
+// Posts: { coverage, time, positions, visibleTriangles }
 
 import * as satellite from 'satellite.js';
 
@@ -11,8 +11,8 @@ let tles = [];
 /** @type {Array<any>} */
 let satrecs = [];
 let running = false;
-/** @type {Float32Array} */
-let coverage = new Float32Array(0);
+/** @type {Uint32Array} */
+let coverage = new Uint32Array(0);
 /** @type {Array<number[]>} */
 let centroids = [];
 /** @type {Array<number[]>} */
@@ -52,7 +52,7 @@ function propagateAllSats(satrecs, date) {
  * @param {number} n
  */
 function resetCoverage(n) {
-    coverage = new Float32Array(n);
+    coverage = new Uint32Array(n);
 }
 
 /**
@@ -100,8 +100,8 @@ function handleStop() {
     resetCoverage(centroids.length);
 }
 
-const coneAngle = 10; // degrees
-const loopMaxTime = 1000; // ms
+const coneAngle = 5; // degrees
+const loopMaxTime = 0; // ms
 
 function simLoop() {
     if (!running) return;
@@ -114,13 +114,15 @@ function simLoop() {
 
     /** @type {Array<number[] | null>} */
     let satPositions = [];
-    while (performance.now() - loopStart < loopMaxTime) {
+    /** @type {Set<number>} */
+    let visibleTriangles = new Set();
 
+    do {
         // Use startEpoch for simulation time
         const date = new Date((startEpoch + time) * 1000);
         satPositions = propagateAllSats(satrecs, date);
         // For each satellite, check which triangles are covered
-        const cosThreshold = Math.cos(coneAngle * Math.PI / 180); // 10 degree cone
+        const cosThreshold = Math.cos(coneAngle * Math.PI / 180);
         for (const pos of satPositions) {
             if (!pos) continue;
             const satNorm = norm(pos);
@@ -133,18 +135,20 @@ function simLoop() {
                 // If dot(satNorm, n) > cosThreshold, satellite is within cone of normal
                 if (dot(satNorm, n) > cosThreshold) {
                     coverage[i] += 1;
+                    visibleTriangles.add(i);
                 }
             }
         }
         time += step;
 
-    }
+    } while (performance.now() - loopStart < loopMaxTime)
     
-    // Send positions along with coverage data
+    // Send positions along with coverage and visibility data
     self.postMessage({ 
         coverage: Array.from(coverage), 
         time,
-        positions: satPositions.map(pos => pos ? {x: pos[0], y: pos[1], z: pos[2]} : null)
+        positions: satPositions.map(pos => pos ? {x: pos[0], y: pos[1], z: pos[2]} : null),
+        visibleTriangles: Array.from(visibleTriangles)
     });
     if (time < maxTime) {
         setTimeout(simLoop, 0);

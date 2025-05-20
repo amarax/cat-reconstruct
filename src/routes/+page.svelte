@@ -118,6 +118,43 @@
 		icoWireMesh = new THREE.Mesh(geometry, wireMaterial);
 		earthGroup.add(icoWireMesh);
 
+		// --- Normal vectors ---
+		const { centroids, normals } = getIcosahedronCentroidsAndNormals(geometry);
+		const normalLinePoints = [];
+		const normalLineColors = [];  // Array for colors
+		const normalLength = 0.1; // Length of normal vectors
+		const defaultColor = new THREE.Color(0xff0000);  // Red
+		
+		// Create line segments for each normal vector
+		centroids.forEach((centroid, i) => {
+			const normal = normals[i];
+			// Start point is the centroid
+			normalLinePoints.push(centroid[0], centroid[1], centroid[2]);
+			// End point is centroid + scaled normal
+			normalLinePoints.push(
+				centroid[0] + normal[0] * normalLength,
+				centroid[1] + normal[1] * normalLength,
+				centroid[2] + normal[2] * normalLength
+			);
+			// Add colors for both vertices of the line
+			normalLineColors.push(defaultColor.r, defaultColor.g, defaultColor.b);
+			normalLineColors.push(defaultColor.r, defaultColor.g, defaultColor.b);
+		});
+
+		const normalGeometry = new THREE.BufferGeometry();
+		normalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(normalLinePoints, 3));
+		normalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(normalLineColors, 3));
+		
+		normalLines = new THREE.LineSegments(
+			normalGeometry,
+			new THREE.LineBasicMaterial({ 
+				vertexColors: true,
+				transparent: true, 
+				opacity: 0.5 
+			})
+		);
+		earthGroup.add(normalLines);
+
 		// Reset the simulation coverage when detail changes
 		simCoverage = null;
 	}
@@ -240,6 +277,7 @@
 		//startSim();
 	});
 
+
 	/*********************** Animation loop *************************/
 	function animate() {
 		requestAnimationFrame(animate);
@@ -288,7 +326,7 @@
 
 	let simWorker: Worker | null = null;
 	let simRunning = false;
-	let simCoverage: Float32Array | null = null;
+	let simCoverage: Uint32Array | null = null;
 	let simTime = 0;
 
 	function getIcosahedronCentroidsAndNormals(geometry: THREE.IcosahedronGeometry) {
@@ -352,15 +390,15 @@
 		if (simWorker) return;
 		simWorker = new SimulationWorker();
 		simWorker.onmessage = (e) => {
-			const { coverage, time, positions } = e.data;
+			const { coverage, time, positions, visibleTriangles } = e.data;
 			if (coverage) {
 				// Accept both Array and ArrayBuffer (for future-proofing)
 				if (Array.isArray(coverage)) {
-					simCoverage = new Float32Array(coverage);
-				} else if (coverage instanceof Float32Array) {
+					simCoverage = new Uint32Array(coverage);
+				} else if (coverage instanceof Uint32Array) {
 					simCoverage = coverage;
 				} else if (coverage instanceof ArrayBuffer) {
-					simCoverage = new Float32Array(coverage);
+					simCoverage = new Uint32Array(coverage);
 				}
 			}
 			if (typeof time === 'number') {
@@ -377,6 +415,26 @@
 						pos.z / EARTH_RADIUS_KM
 					);
 				});
+			}
+			if (normalLines) {
+				const colors = normalLines.geometry.attributes.color.array;
+				// First reset all lines to red
+				for (let i = 0; i < colors.length; i += 3) {
+					colors[i] = 1;     // R
+					colors[i + 1] = 0; // G
+					colors[i + 2] = 0; // B
+				}
+				
+				// Then set visible triangles to green
+				if (visibleTriangles) {
+					visibleTriangles.forEach(i => {
+						const colorIdx = i * 6; // 2 vertices per line, 3 color components per vertex
+						colors[colorIdx] = colors[colorIdx + 3] = 0;     // R
+						colors[colorIdx + 1] = colors[colorIdx + 4] = 1; // G
+						colors[colorIdx + 2] = colors[colorIdx + 5] = 0; // B
+					});
+				}
+				normalLines.geometry.attributes.color.needsUpdate = true;
 			}
 		};
 		// Prepare centroids and normals from the current geometry
