@@ -4,6 +4,7 @@
 	import * as THREE from 'three';
 	import * as satellite from 'satellite.js';
 	import SimulationWorker from '$lib/simulation?worker';
+	import CoverageHistogram from '$lib/components/CoverageHistogram.svelte';
 
 	import '../app.css';
 	/********************* UI state *************************/
@@ -303,9 +304,9 @@
 				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[2]];
 				// Cross product for normal vector (right-hand rule)
 				const normal = [
-					ab[1] * ac[2] - ab[2] * ac[1],  // i component
-					ab[2] * ac[0] - ab[0] * ac[2],  // j component
-					ab[0] * ac[1] - ab[1] * ac[0]   // k component
+					ab[1] * ac[2] - ab[2] * ac[1], // i component
+					ab[2] * ac[0] - ab[0] * ac[2], // j component
+					ab[0] * ac[1] - ab[1] * ac[0] // k component
 				];
 				const len = Math.hypot(...normal);
 				normals.push([normal[0] / len, normal[1] / len, normal[2] / len]);
@@ -323,7 +324,7 @@
 					(vA[2] + vB[2] + vC[2]) / 3
 				];
 				const ab = [vB[0] - vA[0], vB[1] - vA[1], vB[2] - vA[2]];
-				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[2]];  // Fixed z-coordinate index
+				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[2]]; // Fixed z-coordinate index
 				const normal = [
 					ab[1] * ac[2] - ab[2] * ac[1],
 					ab[2] * ac[0] - ab[0] * ac[2],
@@ -446,7 +447,7 @@
 	</div>
 
 	<!-- Simulation controls -->
-	<div class="overlay top-4 right-4 flex flex-col gap-2">
+	<div class="overlay top-4 right-4 flex w-100 flex-col gap-2">
 		<button
 			on:click={simRunning ? stopSim : startSim}
 			class="rounded bg-blue-500 px-2 py-1 text-white"
@@ -457,10 +458,11 @@
 			<div class="text-xs">
 				Sim time: {new Date((simStartEpoch + simSeconds) * 1000).toUTCString()}
 			</div>
-			{#if simCoverage}
-				<div class="text-xs">Coverage bins: {simCoverage.length}</div>
-			{/if}
 		{/if}
+		{#if simCoverage}
+			<div class="text-xs">Coverage bins: {simCoverage.length}</div>
+		{/if}
+		<CoverageHistogram {simCoverage} />
 	</div>
 </div>
 
