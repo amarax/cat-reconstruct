@@ -68,6 +68,7 @@
 	let satRecords: satellite.SatRecord[] = [];
 	let icoHeatMesh: THREE.Object3D | null = null; // Heatmap mesh
 	let icoWireMesh: THREE.Object3D | null = null; // Wireframe mesh
+	let normalLines: THREE.LineSegments | null = null; // Normal vector lines
 
 	// Function to update icosahedron when detail changes
 	function updateIcosahedron() {
@@ -78,6 +79,9 @@
 		}
 		if (icoWireMesh && earthGroup.children.includes(icoWireMesh)) {
 			earthGroup.remove(icoWireMesh);
+		}
+		if (normalLines && earthGroup.children.includes(normalLines)) {
+			earthGroup.remove(normalLines);
 		}
 
 		// Create geometry for both meshes
@@ -110,6 +114,32 @@
 		});
 		icoWireMesh = new THREE.Mesh(geometry, wireMaterial);
 		earthGroup.add(icoWireMesh);
+
+		// --- Normal vector lines ---
+		const { centroids, normals } = getIcosahedronCentroidsAndNormals(geometry);
+		const normalLinePoints: number[] = [];
+		const normalLength = 0.1; // Length of normal vectors
+		
+		centroids.forEach((centroid, i) => {
+			const normal = normals[i];
+			// Start point (centroid)
+			normalLinePoints.push(centroid[0], centroid[1], centroid[2]);
+			// End point (centroid + scaled normal)
+			normalLinePoints.push(
+				centroid[0] + normal[0] * normalLength,
+				centroid[1] + normal[1] * normalLength,
+				centroid[2] + normal[2] * normalLength
+			);
+		});
+
+		const normalGeometry = new THREE.BufferGeometry();
+		normalGeometry.setAttribute(
+			'position',
+			new THREE.Float32BufferAttribute(normalLinePoints, 3)
+		);
+		const normalMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
+		normalLines = new THREE.LineSegments(normalGeometry, normalMaterial);
+		earthGroup.add(normalLines);
 	}
 
 	// Reactive statement to update icosahedron when detail changes
@@ -291,12 +321,14 @@
 					(vA[1] + vB[1] + vC[1]) / 3,
 					(vA[2] + vB[2] + vC[2]) / 3
 				];
+				// Calculate edge vectors
 				const ab = [vB[0] - vA[0], vB[1] - vA[1], vB[2] - vA[2]];
 				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[2]];
+				// Cross product for normal vector (right-hand rule)
 				const normal = [
-					ab[1] * ac[2] - ab[2] * ac[1],
-					ab[2] * ac[0] - ab[0] * ac[2],
-					ab[0] * ac[1] - ab[1] * ac[0]
+					ab[1] * ac[2] - ab[2] * ac[1],  // i component
+					ab[2] * ac[0] - ab[0] * ac[2],  // j component
+					ab[0] * ac[1] - ab[1] * ac[0]   // k component
 				];
 				const len = Math.hypot(...normal);
 				normals.push([normal[0] / len, normal[1] / len, normal[2] / len]);
@@ -314,7 +346,7 @@
 					(vA[2] + vB[2] + vC[2]) / 3
 				];
 				const ab = [vB[0] - vA[0], vB[1] - vA[1], vB[2] - vA[2]];
-				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[1]];
+				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[2]];  // Fixed z-coordinate index
 				const normal = [
 					ab[1] * ac[2] - ab[2] * ac[1],
 					ab[2] * ac[0] - ab[0] * ac[2],
