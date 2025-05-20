@@ -110,7 +110,7 @@
 	/*********************** Set up Three scene ****************/
 	onMount(async () => {
 		// Fetch GNSS constellation first
-		await fetchGPS();
+		// await fetchGPS();
 
 		// Build satRecords array once satellite.js is ready
 		satRecords = sats.map(({ tle1, tle2 }) => satellite.twoline2satrec(tle1, tle2));
