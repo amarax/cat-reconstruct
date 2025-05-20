@@ -60,7 +60,8 @@
 
 	const EARTH_RADIUS_KM = 6371;
 	const cameraDefaultRadius = 3; // initial distance from origin
-	let earthGroup: THREE.Group; // Earth + icosahedron + axes
+	let eciGroup: THREE.Group; // Inertial frame (satellites)
+	let ecefGroup: THREE.Group; // Earth-fixed frame (Earth + mesh)
 	let satMeshes: THREE.Mesh[] = []; // three.js spheres for sats
 	let satRecords: satellite.SatRecord[] = [];
 	let icoHeatMesh: THREE.Object3D | null = null; // Heatmap mesh
@@ -69,21 +70,23 @@
 
 	// Function to update icosahedron when detail changes
 	function updateIcosahedron(detail) {
-		if (!earthGroup) return;
+		if (!ecefGroup) return;
 		// Remove old meshes if present
-		if (icoHeatMesh && earthGroup.children.includes(icoHeatMesh)) {
-			earthGroup.remove(icoHeatMesh);
+		if (icoHeatMesh && ecefGroup.children.includes(icoHeatMesh)) {
+			ecefGroup.remove(icoHeatMesh);
 		}
-		if (icoWireMesh && earthGroup.children.includes(icoWireMesh)) {
-			earthGroup.remove(icoWireMesh);
+		if (icoWireMesh && ecefGroup.children.includes(icoWireMesh)) {
+			ecefGroup.remove(icoWireMesh);
 		}
-		if (normalLines && earthGroup.children.includes(normalLines)) {
-			earthGroup.remove(normalLines);
+		if (normalLines && ecefGroup.children.includes(normalLines)) {
+			ecefGroup.remove(normalLines);
 		}
 
 		// Create geometry for both meshes
 		const geometry = new THREE.IcosahedronGeometry(1.02, detail);
-		geometry.rotateX(Math.PI / 2);
+		// Match Earth's orientation in ECEF
+        geometry.rotateX(-Math.PI / 2);
+        geometry.rotateZ(Math.PI / 2);
 
 		// --- Heatmap mesh ---
 		const color = new THREE.Color();
@@ -100,7 +103,7 @@
 			depthWrite: false
 		});
 		icoHeatMesh = new THREE.Mesh(geometry, heatMaterial);
-		earthGroup.add(icoHeatMesh);
+		ecefGroup.add(icoHeatMesh);
 
 		// --- Wireframe mesh ---
 		const wireMaterial = new THREE.MeshBasicMaterial({
@@ -110,7 +113,7 @@
 			transparent: true
 		});
 		icoWireMesh = new THREE.Mesh(geometry, wireMaterial);
-		earthGroup.add(icoWireMesh);
+		ecefGroup.add(icoWireMesh);
 
 		// --- Normal vectors ---
 		const { centroids, normals } = getIcosahedronCentroidsAndNormals(geometry);
@@ -147,7 +150,7 @@
 				opacity: 0.5 
 			})
 		);
-		earthGroup.add(normalLines);
+		ecefGroup.add(normalLines);
 
 		// Reset the simulation coverage when detail changes
 		simCoverage = null;
@@ -228,6 +231,10 @@
 
 		scene = new THREE.Scene();
 
+		// Create coordinate system groups
+		ecefGroup = new THREE.Group(); // Earth-fixed frame
+		scene.add(ecefGroup); // ECEF frame is the root
+
 		// Controls (OrbitControls imported dynamically to avoid SSR)
 		const { OrbitControls } = await import('three/examples/jsm/controls/OrbitControls.js');
 		controls = new OrbitControls(camera, renderer.domElement);
@@ -250,8 +257,12 @@
 			? new THREE.MeshStandardMaterial({ map: earthTex, roughness: 1 })
 			: new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 1 });
 		const earthGeometry = new THREE.SphereGeometry(1, 128, 128);
-		earthGeometry.rotateX(Math.PI / 2);
-        earthGeometry.rotateZ(Math.PI);
+		
+		// For equirectangular projection texture where top-left is (90°N, -180°W):
+        // Rotate the sphere to match the texture orientation
+        earthGeometry.rotateX(Math.PI / 2); // North pole to +Z (invert sign)
+        earthGeometry.rotateZ(Math.PI / 2);  // Prime meridian (0°) to +X
+		
 		const earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
 
 		// Pole axes
@@ -261,9 +272,8 @@
 		);
 		poleLines = new THREE.LineSegments(poleGeom, new THREE.LineBasicMaterial({ color: 0x00ff00 }));
 
-		earthGroup = new THREE.Group();
-		earthGroup.add(earthMesh, poleLines);
-		scene.add(earthGroup);
+		// Add everything to ECEF group
+		ecefGroup.add(earthMesh, poleLines);
 
 		// Initial icosahedron creation
 		updateIcosahedron(detail);
@@ -271,11 +281,11 @@
 		// Lights
 		scene.add(new THREE.AmbientLight(0xffffff, 0.9));
 
-		// Create meshes for satellites
+		// Create meshes for satellites and add them to ECEF group
 		const satGeom = new THREE.SphereGeometry(0.02, 8, 8);
 		sats.forEach(({ color }, idx) => {
 			const mesh = new THREE.Mesh(satGeom, new THREE.MeshBasicMaterial({ color }));
-			scene.add(mesh);
+			ecefGroup.add(mesh);
 			satMeshes[idx] = mesh;
 		});
 
@@ -295,23 +305,38 @@
 	function animate() {
 		requestAnimationFrame(animate);
 
-		// Rotate Earth group inertially
-		earthGroup.rotation.z = (simSeconds / 86164) * 2 * Math.PI;
+		// Rotate entire ECEF frame (which includes Earth, mesh, and satellites)
+		ecefGroup.rotation.z = (simSeconds / 86164) * 2 * Math.PI;
 
 		if (!simRunning) {
-			// Update satellite positions
+			// Update satellite positions in ECEF
 			const date = new Date((simStartEpoch + simSeconds) * 1000);
 			satRecords.forEach((satrec, idx) => {
 				const posVel = satellite.propagate(satrec, date);
 				if (!posVel.position) return;
-				const { x, y, z } = posVel.position; // km in ECI
-				satMeshes[idx].position.set(x / EARTH_RADIUS_KM, y / EARTH_RADIUS_KM, z / EARTH_RADIUS_KM);
+				
+				// Convert ECI to ECEF
+				const gmst = satellite.gstime(date);
+				const eci = [posVel.position.x, posVel.position.y, posVel.position.z];
+				const rotation = [
+					Math.cos(gmst), -Math.sin(gmst), 0,
+					Math.sin(gmst), Math.cos(gmst), 0,
+					0, 0, 1
+				];
+				
+				// Apply rotation matrix for ECEF
+				const x = (rotation[0]*eci[0] + rotation[1]*eci[1] + rotation[2]*eci[2]) / EARTH_RADIUS_KM;
+				const y = (rotation[3]*eci[0] + rotation[4]*eci[1] + rotation[5]*eci[2]) / EARTH_RADIUS_KM;
+				const z = (rotation[6]*eci[0] + rotation[7]*eci[1] + rotation[8]*eci[2]) / EARTH_RADIUS_KM;
+				
+				satMeshes[idx].position.set(x, y, z);
 			});
 		}
 
-		// Camera tracking – rotate only, respect current zoom
+		// Camera tracking – use world position since everything is in ECEF
 		if (selectedIdx !== null) {
-			const satPos = satMeshes[selectedIdx].position.clone();
+			const satPos = new THREE.Vector3();
+			satMeshes[selectedIdx].getWorldPosition(satPos);
 			const dir = satPos.normalize();
 			const radius = camera.position.length();
 			camera.position.copy(dir.multiplyScalar(radius));
@@ -361,11 +386,7 @@
 					(vA[2] + vB[2] + vC[2]) / 3
 				];
 				// Use centroid direction as normal (vector from center to centroid)
-				const normal = [
-					(vA[0] + vB[0] + vC[0]) / 3,
-					(vA[1] + vB[1] + vC[1]) / 3,
-					(vA[2] + vB[2] + vC[2]) / 3
-				];
+				const normal = [centroid[0], centroid[1], centroid[2]];
 				const len = Math.hypot(...normal);
 				normals.push([normal[0] / len, normal[1] / len, normal[2] / len]);
 				centroids.push(centroid);
@@ -382,11 +403,7 @@
 					(vA[2] + vB[2] + vC[2]) / 3
 				];
 				// Use centroid direction as normal (vector from center to centroid)
-				const normal = [
-					(vA[0] + vB[0] + vC[0]) / 3,
-					(vA[1] + vB[1] + vC[1]) / 3,
-					(vA[2] + vB[2] + vC[2]) / 3
-				];
+				const normal = [centroid[0], centroid[1], centroid[2]];
 				const len = Math.hypot(...normal);
 				normals.push([normal[0] / len, normal[1] / len, normal[2] / len]);
 				centroids.push(centroid);
@@ -417,12 +434,13 @@
 			if (positions) {
 				// Update satellite positions from simulation
 				positions.forEach((pos, idx) => {
-					if (!pos) return;
-					satMeshes[idx].position.set(
-						pos.x / EARTH_RADIUS_KM,
-						pos.y / EARTH_RADIUS_KM,
-						pos.z / EARTH_RADIUS_KM
-					);
+					if (pos) {
+						satMeshes[idx].position.set(
+							pos.x / EARTH_RADIUS_KM,
+							pos.y / EARTH_RADIUS_KM,
+							pos.z / EARTH_RADIUS_KM
+						);
+					}
 				});
 			}
 			if (normalLines && visibilityPairs) {
@@ -430,19 +448,24 @@
 				const points = [];
 				const colors = [];
 				visibilityPairs.forEach(({ triangleIdx, satIdx }) => {
+					const sat = positions[satIdx];
+					if (!sat) return;
+					
+					// Get the normal and centroid for this triangle
+					const norm = normals[triangleIdx];
 					const centroid = centroids[triangleIdx];
-					const satPos = satMeshes[satIdx].position;
-					// Line from centroid to satellite
+					
+					// Draw line from surface to satellite
 					points.push(
 						centroid[0], centroid[1], centroid[2],
-						satPos.x, satPos.y, satPos.z
+						sat.x / EARTH_RADIUS_KM,
+						sat.y / EARTH_RADIUS_KM,
+						sat.z / EARTH_RADIUS_KM
 					);
-					// Use satellite's color for the line
-					const satColor = new THREE.Color(sats[satIdx].color);
-					colors.push(
-						satColor.r, satColor.g, satColor.b,
-						satColor.r, satColor.g, satColor.b
-					);
+					
+					// Set colors for both ends of the line
+					colors.push(1, 0, 0); // Red at surface
+					colors.push(0, 1, 0); // Green at satellite
 				});
 
 				// Update line geometry

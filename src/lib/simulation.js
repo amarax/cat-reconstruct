@@ -36,15 +36,42 @@ function dot(a, b) { return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
 function norm(a) { const l=Math.hypot(...a); return a.map(x=>x/l); }
 
 /**
+ * Convert ECI coordinates to ECEF
+ * @param {number[]} eci ECI coordinates [x, y, z]
+ * @param {number} gmst Greenwich Mean Sidereal Time in radians
+ * @returns {number[]} ECEF coordinates [x, y, z]
+ */
+function eciToEcef(eci, gmst) {
+    const rotation = [
+        Math.cos(gmst), -Math.sin(gmst), 0,
+        Math.sin(gmst), Math.cos(gmst), 0,
+        0, 0, 1
+    ];
+    
+    return [
+        rotation[0]*eci[0] + rotation[1]*eci[1] + rotation[2]*eci[2],
+        rotation[3]*eci[0] + rotation[4]*eci[1] + rotation[5]*eci[2],
+        rotation[6]*eci[0] + rotation[7]*eci[1] + rotation[8]*eci[2]
+    ];
+}
+
+/**
  * @param {Array<any>} satrecs
  * @param {Date} date
  * @returns {Array<(number[]|null)>}
  */
 function propagateAllSats(satrecs, date) {
+    const gmst = satellite.gstime(date);
+    
     return satrecs.map(satrec => {
         const pv = satellite.propagate(satrec, date);
         if (!pv || !pv.position) return null;
-        return [pv.position.x, pv.position.y, pv.position.z];
+        
+        // Get position in ECI
+        const eci = [pv.position.x, pv.position.y, pv.position.z];
+        
+        // Convert to ECEF
+        return eciToEcef(eci, gmst);
     });
 }
 
@@ -128,7 +155,7 @@ function simLoop() {
 
         satPositions.forEach((pos, satIdx) => {
             if (!pos) return;
-            // Get normalized direction from center to satellite
+            // Get normalized direction from center to satellite (already in ECEF)
             const satDir = norm(pos);
             
             for (let i = 0; i < centroids.length; i++) {
