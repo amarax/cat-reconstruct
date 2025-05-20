@@ -24,10 +24,10 @@
 		}
 		
 		// Calculate percentages and bin ranges
-		const totalCovered = bins.reduce((a, b) => a + b, 0);
+		const maxBinCount = Math.max(...bins);
 		return bins.map((count, i) => ({
 			count,
-			percentage: totalCovered ? (count / totalCovered) * 100 : 0,
+			percentage: maxBinCount ? (count / maxBinCount) * 100 : 0,
 			start: (i * maxCount) / numBins,
 			end: ((i + 1) * maxCount) / numBins
 		}));
