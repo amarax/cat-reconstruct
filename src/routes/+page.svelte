@@ -66,7 +66,6 @@
 	let satRecords: satellite.SatRecord[] = [];
 	let icoHeatMesh: THREE.Object3D | null = null; // Heatmap mesh
 	let icoWireMesh: THREE.Object3D | null = null; // Wireframe mesh
-	let normalLines: THREE.LineSegments | null = null; // Normal vector lines
 
 	// Function to update icosahedron when detail changes
 	function updateIcosahedron(detail) {
@@ -77,9 +76,6 @@
 		}
 		if (icoWireMesh && ecefGroup.children.includes(icoWireMesh)) {
 			ecefGroup.remove(icoWireMesh);
-		}
-		if (normalLines && ecefGroup.children.includes(normalLines)) {
-			ecefGroup.remove(normalLines);
 		}
 
 		// Create geometry for both meshes
@@ -115,42 +111,8 @@
 		icoWireMesh = new THREE.Mesh(geometry, wireMaterial);
 		ecefGroup.add(icoWireMesh);
 
-		// --- Normal vectors ---
+		// Get centroids and normals for simulation
 		const { centroids, normals } = getIcosahedronCentroidsAndNormals(geometry);
-		const normalLinePoints = [];
-		const normalLineColors = [];  // Array for colors
-		const normalLength = 0.1; // Length of normal vectors
-		const defaultColor = new THREE.Color(0xff0000);  // Red
-		
-		// Create line segments for each normal vector
-		centroids.forEach((centroid, i) => {
-			const normal = normals[i];
-			// Start point is the centroid
-			normalLinePoints.push(centroid[0], centroid[1], centroid[2]);
-			// End point is centroid + scaled normal
-			normalLinePoints.push(
-				centroid[0] + normal[0] * normalLength,
-				centroid[1] + normal[1] * normalLength,
-				centroid[2] + normal[2] * normalLength
-			);
-			// Add colors for both vertices of the line
-			normalLineColors.push(defaultColor.r, defaultColor.g, defaultColor.b);
-			normalLineColors.push(defaultColor.r, defaultColor.g, defaultColor.b);
-		});
-
-		const normalGeometry = new THREE.BufferGeometry();
-		normalGeometry.setAttribute('position', new THREE.Float32BufferAttribute(normalLinePoints, 3));
-		normalGeometry.setAttribute('color', new THREE.Float32BufferAttribute(normalLineColors, 3));
-		
-		normalLines = new THREE.LineSegments(
-			normalGeometry,
-			new THREE.LineBasicMaterial({ 
-				vertexColors: true,
-				transparent: true, 
-				opacity: 0.5 
-			})
-		);
-		ecefGroup.add(normalLines);
 
 		// Reset the simulation coverage when detail changes
 		simCoverage = null;
@@ -416,7 +378,7 @@
 		if (simWorker) return;
 		simWorker = new SimulationWorker();
 		simWorker.onmessage = (e) => {
-			const { coverage, time, positions, visibilityPairs } = e.data;
+			const { coverage, time, positions } = e.data;
 			if (coverage) {
 				// Accept both Array and ArrayBuffer (for future-proofing)
 				if (Array.isArray(coverage)) {
@@ -442,37 +404,6 @@
 						);
 					}
 				});
-			}
-			if (normalLines && visibilityPairs) {
-				// Create new line points for each visibility pair
-				const points = [];
-				const colors = [];
-				visibilityPairs.forEach(({ triangleIdx, satIdx }) => {
-					const sat = positions[satIdx];
-					if (!sat) return;
-					
-					// Get the normal and centroid for this triangle
-					const norm = normals[triangleIdx];
-					const centroid = centroids[triangleIdx];
-					
-					// Draw line from surface to satellite
-					points.push(
-						centroid[0], centroid[1], centroid[2],
-						sat.x / EARTH_RADIUS_KM,
-						sat.y / EARTH_RADIUS_KM,
-						sat.z / EARTH_RADIUS_KM
-					);
-					
-					// Set colors for both ends of the line
-					colors.push(1, 0, 0); // Red at surface
-					colors.push(0, 1, 0); // Green at satellite
-				});
-
-				// Update line geometry
-				normalLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
-				normalLines.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-				normalLines.geometry.attributes.position.needsUpdate = true;
-				normalLines.geometry.attributes.color.needsUpdate = true;
 			}
 		};
 		// Prepare centroids and normals from the current geometry

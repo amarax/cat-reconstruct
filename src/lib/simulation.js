@@ -1,6 +1,6 @@
 // Web Worker for satellite coverage simulation (ESM, for SvelteKit)
 // Receives: { cmd: 'init', payload: { detail, tles } }, { cmd: 'start' }, { cmd: 'stop' }
-// Posts: { coverage, time, positions, visibleTriangles }
+// Posts: { coverage, time, positions }
 
 import * as satellite from 'satellite.js';
 
@@ -141,14 +141,11 @@ function simLoop() {
 
     /** @type {Array<number[] | null>} */
     let satPositions = [];
-    /** @type {Array<{triangleIdx: number, satIdx: number}>} */
-    let visibilityPairs = [];
 
     do {
         // Use startEpoch for simulation time
         const date = new Date((startEpoch + time) * 1000);
         satPositions = propagateAllSats(satrecs, date);
-        visibilityPairs = [];
         
         // For each satellite, check which triangles are covered
         const cosThreshold = Math.cos(coneAngle * Math.PI / 180);
@@ -161,12 +158,11 @@ function simLoop() {
             for (let i = 0; i < centroids.length; i++) {
                 const n = normals[i];
                 
-                // First check if satellite can even see this face (dot product > 0)
+                // First check if satellite can see this face (dot product > 0)
                 // Then check if it's within the cone angle
                 const cosAngle = dot(satDir, n);
                 if (cosAngle > 0 && cosAngle > cosThreshold) {
                     coverage[i] += 1;
-                    visibilityPairs.push({ triangleIdx: i, satIdx });
                 }
             }
         });
@@ -174,12 +170,11 @@ function simLoop() {
 
     } while (performance.now() - loopStart < loopMaxTime)
     
-    // Send positions along with coverage and visibility data
+    // Send positions along with coverage data
     self.postMessage({ 
         coverage: Array.from(coverage), 
         time,
-        positions: satPositions.map(pos => pos ? {x: pos[0], y: pos[1], z: pos[2]} : null),
-        visibilityPairs
+        positions: satPositions.map(pos => pos ? {x: pos[0], y: pos[1], z: pos[2]} : null)
     });
     if (time < maxTime) {
         setTimeout(simLoop, 0);
