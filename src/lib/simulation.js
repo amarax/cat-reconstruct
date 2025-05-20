@@ -101,8 +101,8 @@ function handleInit(payload) {
     }
 }
 
-// Add a global for startEpoch
-let startEpoch = Date.now() / 1000;
+// startEpoch is initialized in handleInit
+let startEpoch = 0; // default to epoch 0 until initialized
 
 function handleStart() {
     if (running) return;
@@ -140,7 +140,12 @@ function simLoop() {
         }
     }
     time += step;
-    self.postMessage({ coverage: Array.from(coverage), time });
+    // Send positions along with coverage data
+    self.postMessage({ 
+        coverage: Array.from(coverage), 
+        time,
+        positions: satPositions.map(pos => pos ? {x: pos[0], y: pos[1], z: pos[2]} : null)
+    });
     if (time < maxTime) {
         setTimeout(simLoop, 0);
     } else {
