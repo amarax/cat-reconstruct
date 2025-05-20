@@ -111,8 +111,20 @@ function handleStart() {
     simLoop();
 }
 
+function handleResume() {
+    if (running) return;
+    running = true;
+    simLoop();
+}
+
+function handlePause() {
+    running = false;
+}
+
 function handleStop() {
     running = false;
+    time = 0;
+    resetCoverage(centroids.length);
 }
 
 const coneAngle = 10; // degrees
@@ -157,6 +169,8 @@ self.onmessage = function(e) {
     const { cmd, payload } = e.data;
     if (cmd === 'init') handleInit(payload);
     else if (cmd === 'start') handleStart();
+    else if (cmd === 'pause') handlePause();
+    else if (cmd === 'resume') handleResume();
     else if (cmd === 'stop') handleStop();
 };
 

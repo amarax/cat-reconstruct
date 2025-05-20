@@ -399,13 +399,27 @@
 		simWorker.terminate();
 		simWorker = null;
 		simRunning = false;
-		// Don't clear simCoverage to preserve the heatmap visualization
+		simCoverage = null; // Clear coverage data
+		simSeconds = 0; // Reset playback time
+		simTime = 0; // Reset internal time counter
+
+        // Reset icoHeatMesh colors
+        if (icoHeatMesh) {
+            const geometry = (icoHeatMesh as THREE.Mesh).geometry;
+            const colors = geometry.attributes.color.array;
+            for (let i = 0; i < colors.length; i += 4) {
+                colors[i + 3] = 0.0; // Set alpha to 0
+            }
+            geometry.attributes.color.needsUpdate = true;
+        }
 	}
+    
 
 	$: if (simCoverage && icoHeatMesh) {
 		// Color faces by coverage (simple heatmap: blue=low, red=high, alpha=0 if not visited)
 		const geometry = (icoHeatMesh as THREE.Mesh).geometry;
 		const colors = geometry.attributes.color.array;
+        
 		const max = Math.max(...simCoverage);
 		for (let f = 0; f < simCoverage.length; f++) {
 			const vIdx = f * 12; // 3 vertices per face, 4 values per vertex
@@ -432,14 +446,14 @@
 	<div class="overlay top-4 right-4 flex flex-row gap-2">
 		<button
 			on:click={() => {
-				if (!simRunning && !simWorker) {
-					startSim(); // startSim sets simRunning = true internally
+				if (!simWorker) {
+					startSim(); // Initialize worker and start sim
 				} else if (simRunning) {
 					simRunning = false;
-					simWorker?.postMessage({ cmd: 'stop' });
-				} else if (simWorker) {
+					simWorker.postMessage({ cmd: 'pause' }); // Use pause instead of stop to maintain state
+				} else {
 					simRunning = true;
-					simWorker.postMessage({ cmd: 'start' });
+					simWorker.postMessage({ cmd: 'resume' }); // Use resume to continue from current state
 				}
 			}}
 			class="rounded bg-blue-500 px-2 py-1 text-white"
