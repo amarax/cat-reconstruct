@@ -5,8 +5,6 @@
 	// Compute histogram data when coverage changes
 	$: histogramData = coverage ? computeHistogram(coverage) : [];
 	
-	$: console.log(coverage);
-
 	function computeHistogram(coverage: Float32Array) {
 		if (!coverage || coverage.length === 0) return [];
 		

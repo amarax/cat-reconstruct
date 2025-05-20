@@ -470,7 +470,7 @@
 		{#if simCoverage}
 			<div class="text-xs">Coverage bins: {simCoverage.length}</div>
 		{/if}
-		<CoverageHistogram {simCoverage} />
+		<CoverageHistogram coverage={simCoverage} />
 	</div>
 </div>
 
