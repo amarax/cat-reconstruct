@@ -92,12 +92,22 @@
 			colors.push(color.r, color.g, color.b, 0.0); // default fully transparent
 		}
 		geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
-		const heatMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 1.0, depthWrite: false });
+		const heatMaterial = new THREE.MeshStandardMaterial({
+			vertexColors: true,
+			transparent: true,
+			opacity: 1.0,
+			depthWrite: false
+		});
 		icoHeatMesh = new THREE.Mesh(geometry, heatMaterial);
 		earthGroup.add(icoHeatMesh);
 
 		// --- Wireframe mesh ---
-		const wireMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, opacity: 0.7, transparent: true });
+		const wireMaterial = new THREE.MeshBasicMaterial({
+			color: 0xffffff,
+			wireframe: true,
+			opacity: 0.7,
+			transparent: true
+		});
 		icoWireMesh = new THREE.Mesh(geometry, wireMaterial);
 		earthGroup.add(icoWireMesh);
 	}
@@ -124,7 +134,7 @@
 		}
 		sats = newSats; // Reassign to trigger reactivity
 	}
-    let poleLines: THREE.LineSegments;
+	let poleLines: THREE.LineSegments;
 
 	/*********************** Set up Three scene ****************/
 	onMount(async () => {
@@ -172,24 +182,21 @@
 		const earthMaterial = earthTex
 			? new THREE.MeshStandardMaterial({ map: earthTex, roughness: 1 })
 			: new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 1 });
-        const earthGeometry = new THREE.SphereGeometry(1, 128, 128);
-        earthGeometry.rotateX(Math.PI / 2);
-        const earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
+		const earthGeometry = new THREE.SphereGeometry(1, 128, 128);
+		earthGeometry.rotateX(Math.PI / 2);
+		const earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
 
 		// Pole axes
 		const poleGeom = new THREE.BufferGeometry().setAttribute(
 			'position',
 			new THREE.Float32BufferAttribute([0, 0, -1.2, 0, 0, -1.7, 0, 0, 1.2, 0, 0, 1.7], 3)
 		);
-		poleLines = new THREE.LineSegments(
-			poleGeom,
-			new THREE.LineBasicMaterial({ color: 0x00ff00 })
-		);
+		poleLines = new THREE.LineSegments(poleGeom, new THREE.LineBasicMaterial({ color: 0x00ff00 }));
 
 		earthGroup = new THREE.Group();
 		earthGroup.add(earthMesh, poleLines);
 		scene.add(earthGroup);
-		
+
 		// Initial icosahedron creation
 		updateIcosahedron();
 
@@ -222,14 +229,16 @@
 		// Rotate Earth group inertially
 		earthGroup.rotation.z = (simSeconds / 86164) * 2 * Math.PI;
 
-		// Update satellite positions
-		const date = new Date((simStartEpoch + simSeconds) * 1000);
-		satRecords.forEach((satrec, idx) => {
-			const posVel = satellite.propagate(satrec, date);
-			if (!posVel.position) return;
-			const { x, y, z } = posVel.position; // km in ECI
-			satMeshes[idx].position.set(x / EARTH_RADIUS_KM, y / EARTH_RADIUS_KM, z / EARTH_RADIUS_KM);
-		});
+		if (!simRunning) {
+			// Update satellite positions
+			const date = new Date((simStartEpoch + simSeconds) * 1000);
+			satRecords.forEach((satrec, idx) => {
+				const posVel = satellite.propagate(satrec, date);
+				if (!posVel.position) return;
+				const { x, y, z } = posVel.position; // km in ECI
+				satMeshes[idx].position.set(x / EARTH_RADIUS_KM, y / EARTH_RADIUS_KM, z / EARTH_RADIUS_KM);
+			});
+		}
 
 		// Camera tracking – rotate only, respect current zoom
 		if (selectedIdx !== null) {
@@ -323,7 +332,7 @@
 		if (simWorker) return;
 		simWorker = new SimulationWorker();
 		simWorker.onmessage = (e) => {
-			const { coverage, time } = e.data;
+			const { coverage, time, positions } = e.data;
 			if (coverage) {
 				// Accept both Array and ArrayBuffer (for future-proofing)
 				if (Array.isArray(coverage)) {
@@ -338,6 +347,17 @@
 				simTime = time;
 				simSeconds = time; // Sync visualisation time to simulation
 			}
+			if (positions) {
+				// Update satellite positions from simulation
+				positions.forEach((pos, idx) => {
+					if (!pos) return;
+					satMeshes[idx].position.set(
+						pos.x / EARTH_RADIUS_KM,
+						pos.y / EARTH_RADIUS_KM,
+						pos.z / EARTH_RADIUS_KM
+					);
+				});
+			}
 		};
 		// Prepare centroids and normals from the current geometry
 		const geometry = (icoHeatMesh as THREE.Mesh).geometry as THREE.IcosahedronGeometry;
@@ -345,7 +365,7 @@
 		simWorker.postMessage({
 			cmd: 'init',
 			payload: {
-				tles: sats.map(s => [s.tle1, s.tle2]),
+				tles: sats.map((s) => [s.tle1, s.tle2]),
 				centroids,
 				normals,
 				startEpoch: simStartEpoch // Pass the start time to the worker
@@ -374,7 +394,9 @@
 			const cov = simCoverage[f];
 			const t = max > 0 ? cov / max : 0;
 			// Heatmap: blue (low) to red (high)
-			const r = t, g = 0, b = 1 - t;
+			const r = t,
+				g = 0,
+				b = 1 - t;
 			const a = cov > 0 ? 0.7 : 0.0;
 			for (let i = 0; i < 3; i++) {
 				colors[vIdx + i * 4 + 0] = r;
@@ -416,11 +438,16 @@
 
 	<!-- Simulation controls -->
 	<div class="overlay top-4 right-4 flex flex-col gap-2">
-		<button on:click={simRunning ? stopSim : startSim} class="px-2 py-1 rounded bg-blue-500 text-white">
+		<button
+			on:click={simRunning ? stopSim : startSim}
+			class="rounded bg-blue-500 px-2 py-1 text-white"
+		>
 			{simRunning ? 'Stop Simulation' : 'Start Simulation'}
 		</button>
 		{#if simRunning}
-			<div class="text-xs">Sim time: {new Date((simStartEpoch + simSeconds) * 1000).toUTCString()}</div>
+			<div class="text-xs">
+				Sim time: {new Date((simStartEpoch + simSeconds) * 1000).toUTCString()}
+			</div>
 			{#if simCoverage}
 				<div class="text-xs">Coverage bins: {simCoverage.length}</div>
 			{/if}

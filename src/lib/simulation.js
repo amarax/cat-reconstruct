@@ -115,7 +115,7 @@ function handleStop() {
     running = false;
 }
 
-const coneAngle = 45; // degrees
+const coneAngle = 10; // degrees
 
 function simLoop() {
     if (!running) return;
