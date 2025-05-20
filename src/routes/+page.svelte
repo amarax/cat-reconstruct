@@ -10,6 +10,12 @@
 	/********************* UI state *************************/
 	let detail = 3; // Icosahedron tessellation (2‑20)
 	let simSeconds = 0; // Playback 0‑86400 seconds
+	let tweenStartTime = 0; // Start value for time tweening
+	let tweenEndTime = 0; // Target value for time tweening
+	let tweenStartTimestamp = 0; // Animation start timestamp
+	let tweenDuration = 1000; // Duration of tween in milliseconds
+	let isTweening = false; // Whether we're currently tweening time
+	
 	const simStartEpoch = Date.now() / 1000; // UNIX seconds at load time
 	let simStartTime = 0; // Start time offset in seconds
 	let simEndTime = 86400*30; // End time offset in seconds
@@ -267,10 +273,23 @@
 	function animate() {
 		requestAnimationFrame(animate);
 
+		// Handle time tweening
+		if (isTweening) {
+			const now = performance.now();
+			const progress = Math.min(1, (now - tweenStartTimestamp) / tweenDuration);
+			
+			// Linear interpolation
+			simSeconds = tweenStartTime + (tweenEndTime - tweenStartTime) * progress;
+			
+			if (progress === 1) {
+				isTweening = false;
+			}
+		}
+
 		// Rotate entire ECEF frame (which includes Earth, mesh, and satellites)
 		ecefGroup.rotation.z = (simSeconds / 86164) * 2 * Math.PI;
 
-		if (!simRunning) {
+		if (!simRunning || true) {
 			// Update satellite positions in ECEF
 			const date = new Date((simStartEpoch + simSeconds) * 1000);
 			satRecords.forEach((satrec, idx) => {
@@ -378,7 +397,7 @@
 		if (simWorker) return;
 		simWorker = new SimulationWorker();
 		simWorker.onmessage = (e) => {
-			const { coverage, time, positions } = e.data;
+			const { coverage, time, positions, loopDuration } = e.data;
 			if (coverage) {
 				// Accept both Array and ArrayBuffer (for future-proofing)
 				if (Array.isArray(coverage)) {
@@ -391,7 +410,12 @@
 			}
 			if (typeof time === 'number') {
 				simTime = time;
-				simSeconds = time; // Sync visualisation time to simulation
+				// Start a new tween
+				tweenStartTime = simSeconds;
+				tweenEndTime = time;
+				tweenStartTimestamp = performance.now();
+				tweenDuration = loopDuration || 1000; // Use actual loop duration or fallback to 1000ms
+				isTweening = true;
 			}
 			if (positions) {
 				// Update satellite positions from simulation

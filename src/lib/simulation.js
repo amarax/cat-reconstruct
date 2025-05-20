@@ -128,7 +128,7 @@ function handleStop() {
 }
 
 const coneAngle = 5; // degrees
-const loopMaxTime = 1000; // ms
+const loopMaxTime = 10; // ms
 
 function simLoop() {
     if (!running) return;
@@ -170,10 +170,13 @@ function simLoop() {
 
     } while (performance.now() - loopStart < loopMaxTime)
     
+    const loopDuration = performance.now() - loopStart;
+    
     // Send positions along with coverage data
     self.postMessage({ 
         coverage: Array.from(coverage), 
         time,
+        loopDuration,
         positions: satPositions.map(pos => pos ? {x: pos[0], y: pos[1], z: pos[2]} : null)
     });
     if (time < maxTime) {
