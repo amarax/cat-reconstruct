@@ -152,31 +152,31 @@
 	onMount(async () => {
 		// Fetch GNSS constellation first. Try checking localstorage if available.
         // If not, fetch from CelesTrak.
-        // if (localStorage.getItem('gpsTLEs')) {
-        //     const storedTLEs = JSON.parse(localStorage.getItem('gpsTLEs') || '[]');
-        //     sats = [...baseSats, ...storedTLEs];
-        // } else {
-        //     await fetchGPS();
-        //     localStorage.setItem('gpsTLEs', JSON.stringify(sats));
-        // }
+        if (localStorage.getItem('gpsTLEs')) {
+            const storedTLEs = JSON.parse(localStorage.getItem('gpsTLEs') || '[]');
+            sats = [...baseSats, ...storedTLEs];
+        } else {
+            await fetchGPS();
+            localStorage.setItem('gpsTLEs', JSON.stringify(sats));
+        }
 
         // Now try fetching the ISS TLE
-        const issRes = await fetch('http://live.ariss.org/iss.txt');
-        if (issRes.ok) {
-            const issTxt = await issRes.text();
-            const lines = issTxt.trim().split(/\n+/);
-            if (lines.length >= 3) {
-                const name = lines[0].replace(/^0 /, '').trim();
-                const hue = (sats.length * 137.508) % 360;
-                sats.push({
-                    name,
-                    color: hslToHex(hue),
-                    tle1: lines[1].trim(),
-                    tle2: lines[2].trim()
-                });
-                sats = sats; // Reassign to trigger reactivity
-            }
-        }
+        // const issRes = await fetch('http://live.ariss.org/iss.txt');
+        // if (issRes.ok) {
+        //     const issTxt = await issRes.text();
+        //     const lines = issTxt.trim().split(/\n+/);
+        //     if (lines.length >= 3) {
+        //         const name = lines[0].replace(/^0 /, '').trim();
+        //         const hue = (sats.length * 137.508) % 360;
+        //         sats.push({
+        //             name,
+        //             color: hslToHex(hue),
+        //             tle1: lines[1].trim(),
+        //             tle2: lines[2].trim()
+        //         });
+        //         sats = sats; // Reassign to trigger reactivity
+        //     }
+        // }
 		
 
 		// Build satRecords array once satellite.js is ready
@@ -546,14 +546,6 @@
 				<span>{sat.name}</span>
 			</div>
 		{/each}
-	</div>
-
-	<!-- Coverage histogram -->
-	<div class="overlay bottom-24 left-1/2 w-3/4 -translate-x-1/2">
-		{#if simCoverage}
-			<div class="text-xs">Coverage bins: {simCoverage.length}</div>
-		{/if}
-		<CoverageHistogram coverage={simCoverage} />
 	</div>
 
 	<!-- Playback Control -->
