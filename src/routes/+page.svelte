@@ -257,7 +257,16 @@
 		simWorker = new SimulationWorker();
 		simWorker.onmessage = (e) => {
 			const { coverage, time } = e.data;
-			if (coverage) simCoverage = new Float32Array(coverage);
+			if (coverage) {
+				// Accept both Array and ArrayBuffer (for future-proofing)
+				if (Array.isArray(coverage)) {
+					simCoverage = new Float32Array(coverage);
+				} else if (coverage instanceof Float32Array) {
+					simCoverage = coverage;
+				} else if (coverage instanceof ArrayBuffer) {
+					simCoverage = new Float32Array(coverage);
+				}
+			}
 			if (time) simTime = time;
 		};
 		simWorker.postMessage({
