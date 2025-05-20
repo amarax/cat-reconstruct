@@ -71,9 +71,10 @@
 	// Function to update icosahedron when detail changes
 	function updateIcosahedron() {
 		if (!earthGroup) return;
-		// Remove old icosahedron
-		const oldIco = earthGroup.children.find(child => child instanceof THREE.Mesh && child !== poleLines);
-		if (oldIco) earthGroup.remove(oldIco);
+		// Remove old icosahedron only
+		if (icoMesh && earthGroup.children.includes(icoMesh)) {
+			earthGroup.remove(icoMesh);
+		}
 
 		// Create new icosahedron with current detail
 		const geometry = new THREE.IcosahedronGeometry(1.02, detail);
