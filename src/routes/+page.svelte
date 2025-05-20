@@ -109,7 +109,7 @@
 		const wireMaterial = new THREE.MeshBasicMaterial({
 			color: 0xffffff,
 			wireframe: true,
-			opacity: 0.7,
+			opacity: 0.2,
 			transparent: true
 		});
 		icoWireMesh = new THREE.Mesh(geometry, wireMaterial);

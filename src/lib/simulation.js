@@ -128,7 +128,7 @@ function handleStop() {
 }
 
 const coneAngle = 5; // degrees
-const loopMaxTime = 0; // ms
+const loopMaxTime = 1000; // ms
 
 function simLoop() {
     if (!running) return;
