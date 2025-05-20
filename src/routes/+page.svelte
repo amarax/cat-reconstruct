@@ -428,15 +428,38 @@
 </script>
 
 <div bind:this={container} class="relative h-screen w-full">
-	<!-- Tessellation + Playback Controls -->
+	<!-- Simulation controls -->
+	<div class="overlay top-4 right-4 flex flex-row gap-2">
+		<button
+			on:click={() => {
+				if (!simRunning && !simWorker) {
+					startSim(); // startSim sets simRunning = true internally
+				} else if (simRunning) {
+					simRunning = false;
+					simWorker?.postMessage({ cmd: 'stop' });
+				} else if (simWorker) {
+					simRunning = true;
+					simWorker.postMessage({ cmd: 'start' });
+				}
+			}}
+			class="rounded bg-blue-500 px-2 py-1 text-white"
+		>
+			{simRunning ? 'Pause' : simWorker ? 'Resume' : 'Start'}
+		</button>
+		{#if simWorker}
+			<button
+				on:click={stopSim}
+				class="rounded bg-red-500 px-2 py-1 text-white"
+			>
+				Reset
+			</button>
+		{/if}
+	</div>
+
+	<!-- Tessellation Control -->
 	<div class="overlay top-4 left-4">
 		<label>Tessellation: {detail}</label>
 		<input type="range" min="2" max="20" bind:value={detail} step="1" />
-	</div>
-
-	<div class="overlay bottom-4 left-1/2 w-3/4 -translate-x-1/2 text-center">
-		<input type="range" min="0" max="86400" step="60" bind:value={simSeconds} class="w-full" />
-		<div class="mt-1 font-mono">{new Date((simStartEpoch + simSeconds) * 1000).toUTCString()}</div>
 	</div>
 
 	<!-- Satellite list -->
@@ -454,23 +477,18 @@
 		{/each}
 	</div>
 
-	<!-- Simulation controls -->
-	<div class="overlay top-4 right-4 flex w-100 flex-col gap-2">
-		<button
-			on:click={simRunning ? stopSim : startSim}
-			class="rounded bg-blue-500 px-2 py-1 text-white"
-		>
-			{simRunning ? 'Stop Simulation' : 'Start Simulation'}
-		</button>
-		{#if simRunning}
-			<div class="text-xs">
-				Sim time: {new Date((simStartEpoch + simSeconds) * 1000).toUTCString()}
-			</div>
-		{/if}
+	<!-- Coverage histogram -->
+	<div class="overlay bottom-24 left-1/2 w-3/4 -translate-x-1/2">
 		{#if simCoverage}
 			<div class="text-xs">Coverage bins: {simCoverage.length}</div>
 		{/if}
 		<CoverageHistogram coverage={simCoverage} />
+	</div>
+
+	<!-- Playback Control -->
+	<div class="overlay bottom-4 left-1/2 w-3/4 -translate-x-1/2 text-center">
+		<input type="range" min="0" max="86400" step="60" bind:value={simSeconds} class="w-full" />
+		<div class="mt-1 font-mono">{new Date((simStartEpoch + simSeconds) * 1000).toUTCString()}</div>
 	</div>
 </div>
 
