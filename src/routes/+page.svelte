@@ -24,12 +24,6 @@
 	}
 	const baseSats: SatRec[] = [
 		{
-			name: 'ISS',
-			color: '#ff8c00',
-			tle1: '1 25544U 98067A   24124.08267593  .00006238  00000+0  11435-3 0  9994',
-			tle2: '2 25544  51.6434  17.1645 0005574  23.5163  72.4238 15.49811848391744'
-		},
-		{
 			name: 'CUBESAT‑1',
 			color: '#00d1ff',
 			tle1: '1 51025U 22002A   24124.18346310  .00009878  00000+0  53146-3 0  9992',
@@ -194,6 +188,24 @@
         //     await fetchGPS();
         //     localStorage.setItem('gpsTLEs', JSON.stringify(sats));
         // }
+
+        // Now try fetching the ISS TLE
+        const issRes = await fetch('http://live.ariss.org/iss.txt');
+        if (issRes.ok) {
+            const issTxt = await issRes.text();
+            const lines = issTxt.trim().split(/\n+/);
+            if (lines.length >= 3) {
+                const name = lines[0].replace(/^0 /, '').trim();
+                const hue = (sats.length * 137.508) % 360;
+                sats.push({
+                    name,
+                    color: hslToHex(hue),
+                    tle1: lines[1].trim(),
+                    tle2: lines[2].trim()
+                });
+                sats = sats; // Reassign to trigger reactivity
+            }
+        }
 		
 
 		// Build satRecords array once satellite.js is ready
@@ -239,6 +251,7 @@
 			: new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 1 });
 		const earthGeometry = new THREE.SphereGeometry(1, 128, 128);
 		earthGeometry.rotateX(Math.PI / 2);
+        earthGeometry.rotateZ(Math.PI);
 		const earthMesh = new THREE.Mesh(earthGeometry, earthMaterial);
 
 		// Pole axes
@@ -347,14 +360,11 @@
 					(vA[1] + vB[1] + vC[1]) / 3,
 					(vA[2] + vB[2] + vC[2]) / 3
 				];
-				// Calculate edge vectors
-				const ab = [vB[0] - vA[0], vB[1] - vA[1], vB[2] - vA[2]];
-				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[2]];
-				// Cross product for normal vector (right-hand rule)
+				// Use centroid direction as normal (vector from center to centroid)
 				const normal = [
-					ab[1] * ac[2] - ab[2] * ac[1], // i component
-					ab[2] * ac[0] - ab[0] * ac[2], // j component
-					ab[0] * ac[1] - ab[1] * ac[0] // k component
+					(vA[0] + vB[0] + vC[0]) / 3,
+					(vA[1] + vB[1] + vC[1]) / 3,
+					(vA[2] + vB[2] + vC[2]) / 3
 				];
 				const len = Math.hypot(...normal);
 				normals.push([normal[0] / len, normal[1] / len, normal[2] / len]);
@@ -371,12 +381,11 @@
 					(vA[1] + vB[1] + vC[1]) / 3,
 					(vA[2] + vB[2] + vC[2]) / 3
 				];
-				const ab = [vB[0] - vA[0], vB[1] - vA[1], vB[2] - vA[2]];
-				const ac = [vC[0] - vA[0], vC[1] - vA[1], vC[2] - vA[2]]; // Fixed z-coordinate index
+				// Use centroid direction as normal (vector from center to centroid)
 				const normal = [
-					ab[1] * ac[2] - ab[2] * ac[1],
-					ab[2] * ac[0] - ab[0] * ac[2],
-					ab[0] * ac[1] - ab[1] * ac[0]
+					(vA[0] + vB[0] + vC[0]) / 3,
+					(vA[1] + vB[1] + vC[1]) / 3,
+					(vA[2] + vB[2] + vC[2]) / 3
 				];
 				const len = Math.hypot(...normal);
 				normals.push([normal[0] / len, normal[1] / len, normal[2] / len]);
@@ -390,7 +399,7 @@
 		if (simWorker) return;
 		simWorker = new SimulationWorker();
 		simWorker.onmessage = (e) => {
-			const { coverage, time, positions, visibleTriangles } = e.data;
+			const { coverage, time, positions, visibilityPairs } = e.data;
 			if (coverage) {
 				// Accept both Array and ArrayBuffer (for future-proofing)
 				if (Array.isArray(coverage)) {
@@ -416,24 +425,30 @@
 					);
 				});
 			}
-			if (normalLines) {
-				const colors = normalLines.geometry.attributes.color.array;
-				// First reset all lines to red
-				for (let i = 0; i < colors.length; i += 3) {
-					colors[i] = 1;     // R
-					colors[i + 1] = 0; // G
-					colors[i + 2] = 0; // B
-				}
-				
-				// Then set visible triangles to green
-				if (visibleTriangles) {
-					visibleTriangles.forEach(i => {
-						const colorIdx = i * 6; // 2 vertices per line, 3 color components per vertex
-						colors[colorIdx] = colors[colorIdx + 3] = 0;     // R
-						colors[colorIdx + 1] = colors[colorIdx + 4] = 1; // G
-						colors[colorIdx + 2] = colors[colorIdx + 5] = 0; // B
-					});
-				}
+			if (normalLines && visibilityPairs) {
+				// Create new line points for each visibility pair
+				const points = [];
+				const colors = [];
+				visibilityPairs.forEach(({ triangleIdx, satIdx }) => {
+					const centroid = centroids[triangleIdx];
+					const satPos = satMeshes[satIdx].position;
+					// Line from centroid to satellite
+					points.push(
+						centroid[0], centroid[1], centroid[2],
+						satPos.x, satPos.y, satPos.z
+					);
+					// Use satellite's color for the line
+					const satColor = new THREE.Color(sats[satIdx].color);
+					colors.push(
+						satColor.r, satColor.g, satColor.b,
+						satColor.r, satColor.g, satColor.b
+					);
+				});
+
+				// Update line geometry
+				normalLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+				normalLines.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+				normalLines.geometry.attributes.position.needsUpdate = true;
 				normalLines.geometry.attributes.color.needsUpdate = true;
 			}
 		};
@@ -500,8 +515,6 @@
 			}
 		}
 		geometry.attributes.color.needsUpdate = true;
-
-        console.log('Coverage updated:', simCoverage);
 	}
 </script>
 

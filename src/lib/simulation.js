@@ -114,31 +114,35 @@ function simLoop() {
 
     /** @type {Array<number[] | null>} */
     let satPositions = [];
-    /** @type {Set<number>} */
-    let visibleTriangles = new Set();
+    /** @type {Array<{triangleIdx: number, satIdx: number}>} */
+    let visibilityPairs = [];
 
     do {
         // Use startEpoch for simulation time
         const date = new Date((startEpoch + time) * 1000);
         satPositions = propagateAllSats(satrecs, date);
+        visibilityPairs = [];
+        
         // For each satellite, check which triangles are covered
         const cosThreshold = Math.cos(coneAngle * Math.PI / 180);
-        for (const pos of satPositions) {
-            if (!pos) continue;
-            const satNorm = norm(pos);
+
+        satPositions.forEach((pos, satIdx) => {
+            if (!pos) return;
+            // Get normalized direction from center to satellite
+            const satDir = norm(pos);
+            
             for (let i = 0; i < centroids.length; i++) {
-                // Angle between sat->centroid and normal
-                const c = centroids[i];
                 const n = normals[i];
-                // Vector from origin to centroid (should be unit)
-                // Vector from origin to satellite (satNorm)
-                // If dot(satNorm, n) > cosThreshold, satellite is within cone of normal
-                if (dot(satNorm, n) > cosThreshold) {
+                
+                // First check if satellite can even see this face (dot product > 0)
+                // Then check if it's within the cone angle
+                const cosAngle = dot(satDir, n);
+                if (cosAngle > 0 && cosAngle > cosThreshold) {
                     coverage[i] += 1;
-                    visibleTriangles.add(i);
+                    visibilityPairs.push({ triangleIdx: i, satIdx });
                 }
             }
-        }
+        });
         time += step;
 
     } while (performance.now() - loopStart < loopMaxTime)
@@ -148,7 +152,7 @@ function simLoop() {
         coverage: Array.from(coverage), 
         time,
         positions: satPositions.map(pos => pos ? {x: pos[0], y: pos[1], z: pos[2]} : null),
-        visibleTriangles: Array.from(visibleTriangles)
+        visibilityPairs
     });
     if (time < maxTime) {
         setTimeout(simLoop, 0);
