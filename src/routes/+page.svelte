@@ -66,21 +66,29 @@
 	let earthGroup: THREE.Group; // Earth + icosahedron + axes
 	let satMeshes: THREE.Mesh[] = []; // three.js spheres for sats
 	let satRecords: satellite.SatRecord[] = [];
+	let icoMesh: THREE.Mesh | null = null; // Reference to the icosahedron mesh for coloring
 
 	// Function to update icosahedron when detail changes
 	function updateIcosahedron() {
 		if (!earthGroup) return;
 		// Remove old icosahedron
-		const oldIco = earthGroup.children.find(child => child instanceof THREE.LineSegments && !(child === poleLines));
+		const oldIco = earthGroup.children.find(child => child instanceof THREE.Mesh && child !== poleLines);
 		if (oldIco) earthGroup.remove(oldIco);
-		
+
 		// Create new icosahedron with current detail
-		const icoEdges = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1.02, detail));
-		const icoLine = new THREE.LineSegments(
-			icoEdges,
-			new THREE.LineBasicMaterial({ color: 0xffffff })
-		);
-		earthGroup.add(icoLine);
+		const geometry = new THREE.IcosahedronGeometry(1.02, detail);
+		geometry.rotateX(Math.PI / 2);
+		// Add color attribute for per-face coloring
+		const color = new THREE.Color();
+		const colors = [];
+		for (let i = 0; i < geometry.attributes.position.count; i++) {
+			color.setRGB(1, 1, 1); // default white
+			colors.push(color.r, color.g, color.b);
+		}
+		geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+		const material = new THREE.MeshBasicMaterial({ vertexColors: true, wireframe: true });
+		icoMesh = new THREE.Mesh(geometry, material);
+		earthGroup.add(icoMesh);
 	}
 
 	// Reactive statement to update icosahedron when detail changes
@@ -141,7 +149,7 @@
 		// Earth Sphere (height‑map greyscale texture)
 		const earthTex = await new Promise<THREE.Texture>((resolve) => {
 			new THREE.TextureLoader().load(
-				'/gebco_08_rev_elev_21600x10800.png',
+				'/gebco_08_rev_elev_4096x2048.png',
 				(tex) => {
 					tex.needsUpdate = true;
 					resolve(tex);
@@ -237,6 +245,80 @@
 			);
 		}
 	}
+
+	let simWorker: Worker | null = null;
+	let simRunning = false;
+	let simCoverage: Float32Array | null = null;
+	let simTime = 0;
+
+	function startSim() {
+		if (simWorker) return;
+		simWorker = new SimulationWorker();
+		simWorker.onmessage = (e) => {
+			const { coverage, time } = e.data;
+			if (coverage) simCoverage = new Float32Array(coverage);
+			if (time) simTime = time;
+		};
+		simWorker.postMessage({
+			cmd: 'init',
+			payload: {
+				detail,
+				tles: sats.map(s => [s.tle1, s.tle2])
+			}
+		});
+		simWorker.postMessage({ cmd: 'start' });
+		simRunning = true;
+	}
+
+	function stopSim() {
+		if (!simWorker) return;
+		simWorker.postMessage({ cmd: 'stop' });
+		simWorker.terminate();
+		simWorker = null;
+		simRunning = false;
+	}
+
+	$: if (simWorker && detail) {
+		// Re-init worker if detail changes
+		simWorker.postMessage({
+			cmd: 'init',
+			payload: {
+				detail,
+				tles: sats.map(s => [s.tle1, s.tle2])
+			}
+		});
+	}
+
+	$: if (simWorker && sats) {
+		// Re-init worker if sats change
+		simWorker.postMessage({
+			cmd: 'init',
+			payload: {
+				detail,
+				tles: sats.map(s => [s.tle1, s.tle2])
+			}
+		});
+	}
+
+	$: if (simCoverage && simRunning && icoMesh) {
+		// Color faces by coverage (simple heatmap: blue=low, red=high)
+		const geometry = icoMesh.geometry;
+		const colors = geometry.attributes.color.array;
+		const max = Math.max(...simCoverage);
+		for (let f = 0; f < simCoverage.length; f++) {
+			const vIdx = f * 9; // 3 vertices per face, 3 values per vertex
+			const cov = simCoverage[f];
+			const t = max > 0 ? cov / max : 0;
+			// Heatmap: blue (low) to red (high)
+			const r = t, g = 0, b = 1 - t;
+			for (let i = 0; i < 3; i++) {
+				colors[vIdx + i * 3 + 0] = r;
+				colors[vIdx + i * 3 + 1] = g;
+				colors[vIdx + i * 3 + 2] = b;
+			}
+		}
+		geometry.attributes.color.needsUpdate = true;
+	}
 </script>
 
 <div bind:this={container} class="relative h-screen w-full">
@@ -264,6 +346,19 @@
 				<span>{sat.name}</span>
 			</div>
 		{/each}
+	</div>
+
+	<!-- Simulation controls -->
+	<div class="overlay top-4 right-4 flex flex-col gap-2">
+		<button on:click={simRunning ? stopSim : startSim} class="px-2 py-1 rounded bg-blue-500 text-white">
+			{simRunning ? 'Stop Simulation' : 'Start Simulation'}
+		</button>
+		{#if simRunning}
+			<div class="text-xs">Sim time: {new Date(simTime * 1000).toUTCString()}</div>
+			{#if simCoverage}
+				<div class="text-xs">Coverage bins: {simCoverage.length}</div>
+			{/if}
+		{/if}
 	</div>
 </div>
 
