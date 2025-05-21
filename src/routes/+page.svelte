@@ -1,6 +1,7 @@
 <!-- +page.svelte (SvelteKit) – Satellite Coverage Visualiser -->
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { base } from "$app/paths";
 	import * as THREE from 'three';
 	import * as satellite from 'satellite.js';
 	import SimulationWorker from '$lib/simulation?worker';
@@ -8,7 +9,7 @@
 
 	import '../app.css';
 	/********************* UI state *************************/
-	let detail = 3; // Icosahedron tessellation (2‑20)
+	let detail = 8; // Icosahedron tessellation (2‑20)
 	let simSeconds = 0; // Playback 0‑86400 seconds
 	let tweenStartTime = 0; // Start value for time tweening
 	let tweenEndTime = 0; // Target value for time tweening
@@ -40,9 +41,18 @@
 			color: '#ff3c7d',
 			tle1: '1 44365U 19017C   24124.07791319  .00006430  00000+0  56520-3 0  9992',
 			tle2: '2 44365  97.4732  68.5907 0011873 314.5033  45.5469 15.01515154321723'
-		}
+		}, 
 	];
-	let sats: SatRec[] = [...baseSats]; // GNSS fetched onMount and pushed
+	const issRec: SatRec = 	{
+			name: 'ISS (ZARYA)',
+			color: '#ff00ff',
+			tle1: '1 25544U 98067A   25141.33820368  .00008211  00000-0  15360-3 0  9996',
+			tle2: '2 25544  51.6382  80.0845 0002544 127.0828  16.1893 15.49641181510997'
+		}
+;
+	let sats: SatRec[] = [...baseSats, issRec]; // GNSS fetched onMount and pushed
+
+	let spireSats, gpsSats: SatRec[] | null; // Spire and GNSS TLEs
 
 	function hslToHex(h: number, s = 100, l = 50) {
 		l /= 100;
@@ -128,12 +138,12 @@
 	$: updateIcosahedron(detail);
 
 	/***************** Fetch GPS‑OPS TLEs then set up ***********/
-	async function fetchGPS() {
-		const res = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=tle');
+	async function fetchSats(group: string) {
+		const res = await fetch(`https://celestrak.org/NORAD/elements/gp.php?GROUP=${group}&FORMAT=tle`);
 		if (!res.ok) return;
 		const txt = await res.text();
 		const lines = txt.trim().split(/\n+/);
-		const newSats = [...sats]; // Create a new array with existing satellites
+		const newSats = []; // Create a new array with existing satellites
 		for (let i = 0; i < lines.length - 2; i += 3) {
 			const name = lines[i].replace(/^0 /, '').trim();
 			const hue = (newSats.length * 137.508) % 360;
@@ -144,7 +154,7 @@
 				tle2: lines[i + 2].trim()
 			});
 		}
-		sats = newSats; // Reassign to trigger reactivity
+		return newSats; // Reassign to trigger reactivity
 	}
 	let poleLines: THREE.LineSegments;
 
@@ -152,13 +162,19 @@
 	onMount(async () => {
 		// Fetch GNSS constellation first. Try checking localstorage if available.
         // If not, fetch from CelesTrak.
-        if (localStorage.getItem('gpsTLEs')) {
-            const storedTLEs = JSON.parse(localStorage.getItem('gpsTLEs') || '[]');
-            sats = [...baseSats, ...storedTLEs];
-        } else {
-            await fetchGPS();
-            localStorage.setItem('gpsTLEs', JSON.stringify(sats));
+		gpsSats = localStorage.getItem('gpsTLEs') ? JSON.parse(localStorage.getItem('gpsTLEs')!) : null;
+        if (!gpsSats) {
+            gpsSats = await fetchSats('gps-ops');
+            localStorage.setItem('gpsTLEs', JSON.stringify(gpsSats));
         }
+		spireSats = localStorage.getItem('spireTLEs') ? JSON.parse(localStorage.getItem('spireTLEs')!) : null;
+		if (!spireSats) {
+			spireSats = await fetchSats('spire');
+			localStorage.setItem('spireTLEs', JSON.stringify(spireSats));
+		}
+
+		sats = [issRec, ...spireSats, ...gpsSats]; // Add GNSS to the list
+
 
         // Now try fetching the ISS TLE
         // const issRes = await fetch('http://live.ariss.org/iss.txt');
@@ -212,7 +228,7 @@
 		// Earth Sphere (height‑map greyscale texture)
 		const earthTex = await new Promise<THREE.Texture>((resolve) => {
 			new THREE.TextureLoader().load(
-				'/gebco_08_rev_elev_4096x2048.png',
+				`${base}/gebco_08_rev_elev_4096x2048.png`,
 				(tex) => {
 					tex.needsUpdate = true;
 					resolve(tex);
@@ -436,7 +452,7 @@
 		simWorker.postMessage({
 			cmd: 'init',
 			payload: {
-				tles: sats.map((s) => [s.tle1, s.tle2]),
+				tles: spireSats.map((s) => [s.tle1, s.tle2]),
 				centroids,
 				normals,
 				startEpoch: simStartEpoch, // Base epoch for date calculations
@@ -529,7 +545,7 @@
 	<div class="overlay top-4 left-4 flex flex-col gap-2">
 		<div>
 			<label>Tessellation: {detail}</label>
-			<input type="range" min="2" max="20" bind:value={detail} step="1" />
+			<input type="range" min="8" max="40" bind:value={detail} step="1" />
 		</div>
 	</div>
 
