@@ -228,7 +228,7 @@
 		// Earth Sphere (height‑map greyscale texture)
 		const earthTex = await new Promise<THREE.Texture>((resolve) => {
 			new THREE.TextureLoader().load(
-				`${base}/gebco_08_rev_elev_4096x2048.png`,
+				`${base}/gebco_08_rev_elev_4096x2048.nolfs.png`,
 				(tex) => {
 					tex.needsUpdate = true;
 					resolve(tex);

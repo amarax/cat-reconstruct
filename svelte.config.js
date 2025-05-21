@@ -12,8 +12,8 @@ export default {
 			strict: true
 		}),
 		paths: {
-			base: process.env.NODE_ENV === 'dev' ? '':'/cat-reconstruct',
-			relative: true
+			base: '/cat-reconstruct',
+			relative: false
 		},
 	}
 };
