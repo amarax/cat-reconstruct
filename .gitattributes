@@ -1,3 +1,0 @@
-*.png filter=lfs diff=lfs merge=lfs -text
-*.nolfs.png !filter !diff !merge text
-favicon.png !filter !diff !merge text
